@@ -52,8 +52,9 @@ def main():
             wav_cache[path] = load_wav(path)
         x, sr = wav_cache[path]
 
+        lang = "hi" if "hindi" in args.data_dir.lower() else "en"
         prior = turn_pauses.get(tid, [])
-        feat = extract_features(x, sr, pause_start, pause_index, prior)
+        feat = extract_features(x, sr, pause_start, pause_index, prior, lang=lang)
         turn_pauses.setdefault(tid, []).append(pause_start)
 
         X.append(feat)

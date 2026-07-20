@@ -37,8 +37,9 @@ def load_dataset(data_dir):
         if path not in wav_cache:
             wav_cache[path] = load_wav(path)
         x, sr = wav_cache[path]
+        lang = "hi" if "hindi" in data_dir else "en"
         prior = turn_pauses.get(tid, [])
-        feat = extract_features(x, sr, pause_start, int(r["pause_index"]), prior)
+        feat = extract_features(x, sr, pause_start, int(r["pause_index"]), prior, lang=lang)
         turn_pauses.setdefault(tid, []).append(pause_start)
         X.append(feat); y.append(1 if r["label"] == "eot" else 0)
         groups.append(tid); keys.append((tid, r["pause_index"], r["audio_file"]))
