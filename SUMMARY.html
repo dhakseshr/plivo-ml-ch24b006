@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EOT Detection — Assignment Summary</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.6; }
+    h1 { color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 8px; }
+    h2 { color: #283593; margin-top: 36px; }
+    h3 { color: #3949ab; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th { background: #1a237e; color: white; padding: 10px 14px; text-align: left; }
+    td { padding: 9px 14px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) { background: #f5f5f5; }
+    .metric-box { display: inline-block; background: #e8eaf6; border: 2px solid #3949ab;
+                  border-radius: 8px; padding: 12px 24px; margin: 8px; text-align: center; }
+    .metric-box .val { font-size: 2em; font-weight: bold; color: #1a237e; }
+    .metric-box .lbl { font-size: 0.85em; color: #555; }
+    .baseline { color: #b71c1c; font-weight: bold; }
+    .improved { color: #1b5e20; font-weight: bold; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    pre { background: #f0f0f0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 0.88em; }
+    .tag-human { background: #fff3e0; border: 1px solid #ff9800; border-radius: 4px; padding: 2px 8px; font-size: 0.85em; }
+    .tag-ai { background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px; padding: 2px 8px; font-size: 0.85em; }
+    .warn { background: #fff8e1; border-left: 4px solid #ffc107; padding: 10px 14px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+
+<h1>End-of-Turn Detection — Assignment Summary</h1>
+<p><strong>Track:</strong> STT — End-of-Turn Detection &nbsp;|&nbsp;
+   <strong>Candidate:</strong> ch24b006 &nbsp;|&nbsp;
+   <strong>Institute:</strong> IIT Madras</p>
+
+<!-- ─── Results ─────────────────────────────────────────── -->
+<h2>Results</h2>
+
+<div>
+  <div class="metric-box">
+    <div class="val">1313 ms</div>
+    <div class="lbl">English — mean response delay<br>(OOF, ≤5% interrupted)</div>
+  </div>
+  <div class="metric-box">
+    <div class="val">843 ms</div>
+    <div class="lbl">Hindi — mean response delay<br>(OOF, ≤5% interrupted)</div>
+  </div>
+  <div class="metric-box">
+    <div class="val">0.701</div>
+    <div class="lbl">5-fold CV AUC<br>(English + Hindi combined)</div>
+  </div>
+</div>
+
+<table>
+  <tr><th>System</th><th>English delay</th><th>Hindi delay</th><th>AUC</th><th>Note</th></tr>
+  <tr><td>Silence-only baseline</td><td class="baseline">~1600 ms</td><td class="baseline">~1600 ms</td><td>0.514</td><td>Starter baseline.py</td></tr>
+  <tr><td>Run 2: Prosodic features + GBM</td><td>160 ms*</td><td>100 ms*</td><td>0.736 (val)</td><td>*In-sample — overfit</td></tr>
+  <tr><td>Run 3: + MFCC + spectral centroid</td><td>100 ms*</td><td>100 ms*</td><td>0.736 (val)</td><td>*In-sample — overfit</td></tr>
+  <tr><td><strong>Run 4: Ensemble + OOF (final)</strong></td><td class="improved"><strong>1313 ms</strong></td><td class="improved"><strong>843 ms</strong></td><td><strong>0.701 (5-fold CV)</strong></td><td>Honest OOF estimate</td></tr>
+</table>
+
+<div class="warn">
+  The OOF predictions give an honest generalization estimate for the hidden test set. In-sample predictions from runs 2–3 achieved 100–160 ms but represent memorization of training labels.
+</div>
+
+<!-- ─── Model Description ─────────────────────────────── -->
+<h2>Model Description</h2>
+
+<h3>Feature Engineering (56 features, all causal)</h3>
+<p>All features use audio from <code>[0, pause_start)</code> only — no future information.</p>
+
+<table>
+  <tr><th>Feature Group</th><th>Features</th><th>Linguistic Motivation</th></tr>
+  <tr>
+    <td>F0 (pitch)</td>
+    <td>slope, final value, final/mean ratio, std, voiced fraction, last voiced region duration, fall composite</td>
+    <td>Falling intonation = declarative statement = EOT; continued turns show level/rising pitch</td>
+  </tr>
+  <tr>
+    <td>Energy</td>
+    <td>mean, final, ratio, slope (1.5s + 300ms), end-vs-start ratio</td>
+    <td>Energy drops as speaker trails off at EOT; hold pauses show maintained energy</td>
+  </tr>
+  <tr>
+    <td>MFCC (13 + 13 deltas)</td>
+    <td>Mean of 13 MFCC coefficients + 13 delta-MFCC from last 0.5s</td>
+    <td>Spectral dynamics capture articulation changes; deltas detect rate-of-change patterns at turn boundary</td>
+  </tr>
+  <tr>
+    <td>Spectral</td>
+    <td>Centroid slope/final/mean, rolloff slope/final/mean, spectral flux mean/final</td>
+    <td>Spectral centroid and rolloff drop as voice energy shifts to lower frequencies at EOT; flux drops as speech becomes less dynamic</td>
+  </tr>
+  <tr>
+    <td>Turn context</td>
+    <td>Pause index, pause_start time, speech context length, inter-pause interval, turn-level voiced fraction</td>
+    <td>Later pauses in longer turns are more likely EOT; inter-pause interval captures rhythm</td>
+  </tr>
+  <tr>
+    <td>ZCR</td>
+    <td>Zero-crossing rate (last 0.5s)</td>
+    <td>High ZCR = fricative/unvoiced = more dynamic speech = continuation</td>
+  </tr>
+</table>
+
+<h3>Model Architecture</h3>
+<p>Soft-voting ensemble of two classifiers, wrapped in isotonic calibration:</p>
+<ul>
+  <li><strong>GradientBoostingClassifier</strong>: 200 trees, max_depth=3, lr=0.08, subsample=0.8, min_samples_leaf=8</li>
+  <li><strong>RandomForestClassifier</strong>: 300 trees, max_depth=6, min_samples_leaf=5, class_weight="balanced"</li>
+  <li>Feature preprocessing: <code>StandardScaler</code></li>
+  <li>Probability calibration: <code>CalibratedClassifierCV(cv=3, method="isotonic")</code></li>
+</ul>
+<p>Trained on English + Hindi combined (496 pauses, 200 EOT, 296 hold). Cross-lingual training is essential because the hidden test set is predominantly Hindi.</p>
+
+<h3>Top Features (GBM importances)</h3>
+<table>
+  <tr><th>Rank</th><th>Feature</th><th>Importance</th></tr>
+  <tr><td>1</td><td>f0_final_ratio</td><td>0.086</td></tr>
+  <tr><td>2</td><td>mfcc_delta_10</td><td>0.079</td></tr>
+  <tr><td>3</td><td>mfcc_0</td><td>0.055</td></tr>
+  <tr><td>4</td><td>mfcc_7</td><td>0.050</td></tr>
+  <tr><td>5</td><td>mfcc_10</td><td>0.049</td></tr>
+</table>
+<p>MFCC_0 is proportional to log energy — corroborating energy as a key signal. MFCC deltas (especially higher-order) capture spectral rate-of-change, which distinguishes the abrupt spectral shift at turn end from gradual hold pauses.</p>
+
+<!-- ─── Why It Beats Baseline ─────────────────────────── -->
+<h2>Why It Beats the Baseline</h2>
+<p>The silence-only baseline fires on every pause regardless of prosodic context, forcing the agent to rely solely on a silence timer (up to 1.6s). Our model outputs a calibrated <code>p_eot</code> that reflects the acoustic likelihood of turn completion:</p>
+<ul>
+  <li>When <code>p_eot</code> is high (EOT-like acoustics), the agent can commit at a short delay (100–750ms).</li>
+  <li>When <code>p_eot</code> is low (hold-like acoustics), the agent waits, avoiding false cutoffs.</li>
+  <li>This lets the scorer find an operating point with lower mean delay while keeping interrupted turns ≤ 5%.</li>
+</ul>
+
+<!-- ─── Iterations ──────────────────────────────────────── -->
+<h2>Iteration Log (from RUNLOG.md)</h2>
+
+<h3>Run 1 — Baseline (1600 ms)</h3>
+<p>Silence-only baseline: p_eot = 1.0 for all pauses. Agent waits full 1.6s timeout.</p>
+
+<h3>Run 2 — Prosodic Features + GBM (160 ms English, val AUC 0.604)</h3>
+<p>Added 20 prosodic + temporal features. Trained GBM on English+Hindi combined. First meaningful improvement over silence baseline.</p>
+
+<h3>Run 3 — MFCC + Spectral Centroid (val AUC 0.736)</h3>
+<p>Added 13 MFCC means, 13 MFCC delta means, spectral centroid slope/mean/final, local 300ms energy slope. Validation AUC jumped from 0.604 → 0.736, indicating substantially better generalization.</p>
+
+<h3>Run 4 — Ensemble + Rolloff/Flux + OOF Predictions (5-fold AUC 0.701)</h3>
+<p>Added spectral rolloff and spectral flux features. Replaced single GBM with GBM+RF soft-voting ensemble with isotonic calibration. Switched to OOF cross-validation predictions for honest evaluation. Final model.pkl trained on full dataset.</p>
+
+<!-- ─── Failure Analysis ────────────────────────────────── -->
+<h2>Where the Model Fails</h2>
+<ul>
+  <li><strong>Flat declaratives:</strong> Some Hindi dialects use level pitch for statements, confusing the F0-based features.</li>
+  <li><strong>Short turns:</strong> &lt; 1s of speech before a pause gives insufficient context for reliable F0 estimation, leading to zeroed-out features.</li>
+  <li><strong>List enumerations:</strong> Speakers pause between list items with EOT-like acoustics but then continue.</li>
+  <li><strong>Speaker variability:</strong> No speaker normalization; pitch range varies significantly across callers.</li>
+</ul>
+
+<!-- ─── Human vs AI ───────────────────────────────────── -->
+<h2>Human vs AI Contribution</h2>
+
+<table>
+  <tr><th>Component</th><th>Done by</th><th>Details</th></tr>
+  <tr>
+    <td>Feature design choices</td>
+    <td><span class="tag-human">Human</span> + <span class="tag-ai">AI</span></td>
+    <td>Human selected which prosodic signals are linguistically motivated (F0 slope for intonation, syllable lengthening). AI implemented the signal computation and suggested spectral features.</td>
+  </tr>
+  <tr>
+    <td>Feature code (feature_extraction.py)</td>
+    <td><span class="tag-ai">AI (Claude Code)</span></td>
+    <td>All feature extraction code written by Claude Code based on linguistic specifications.</td>
+  </tr>
+  <tr>
+    <td>Model selection & training loop</td>
+    <td><span class="tag-ai">AI (Claude Code)</span></td>
+    <td>GBM + RF ensemble, calibration, GroupKFold OOF strategy — implemented by AI.</td>
+  </tr>
+  <tr>
+    <td>Track selection rationale</td>
+    <td><span class="tag-human">Human</span></td>
+    <td>Human decided on STT track given the domain relevance to Plivo's core telephony business.</td>
+  </tr>
+  <tr>
+    <td>Iteration strategy</td>
+    <td><span class="tag-human">Human</span></td>
+    <td>Human directed each iteration: add MFCC, switch to ensemble, use OOF instead of in-sample.</td>
+  </tr>
+  <tr>
+    <td>Scoring analysis & RUNLOG</td>
+    <td><span class="tag-human">Human</span> + <span class="tag-ai">AI</span></td>
+    <td>Human interpreted results; AI drafted RUNLOG entries.</td>
+  </tr>
+</table>
+
+<!-- ─── File Listing ──────────────────────────────────── -->
+<h2>Repository Structure</h2>
+<pre>
+plivo-ml-ch24b006/
+├── feature_extraction.py   # Causal feature extraction (56 features)
+├── train_model.py          # Training pipeline: 5-fold OOF + full retrain
+├── predict.py              # Inference script (loads model.pkl)
+├── model.pkl               # Trained GBM+RF ensemble (all data)
+├── predictions.csv         # Combined OOF predictions (English + Hindi)
+├── predictions_en.csv      # English OOF predictions
+├── predictions_hi.csv      # Hindi OOF predictions
+├── RUNLOG.md               # Per-run scores and changes
+├── NOTES.md                # Model signals, failures, future work
+└── SUMMARY.html            # This file
+</pre>
+
+<hr>
+<p style="color:#888; font-size:0.85em;">
+  Generated as part of Plivo AI/ML Campus Assignment 2026 — STT Track.
+</p>
+
+</body>
+</html>
