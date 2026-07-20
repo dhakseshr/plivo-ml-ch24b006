@@ -17,7 +17,10 @@ Usage:
 """
 import argparse
 import csv
+import hashlib
+import math
 import os
+import pickle
 import sys
 import time
 
@@ -107,13 +110,29 @@ class EOTDataset(Dataset):
         )
 
 
+CACHE_DIR = ".feature_cache"
+
+
+def _cache_path(data_dir):
+    key = hashlib.md5(os.path.abspath(data_dir).encode()).hexdigest()[:10]
+    return os.path.join(CACHE_DIR, f"{os.path.basename(data_dir)}_{key}.pkl")
+
+
 def load_dataset(data_dir):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = _cache_path(data_dir)
+
+    if os.path.exists(cache_file):
+        print(f"  Loading cached features from {cache_file}")
+        with open(cache_file, "rb") as f:
+            return pickle.load(f)
+
     labels_path = os.path.join(data_dir, "labels.csv")
     rows = list(csv.DictReader(open(labels_path)))
     wav_cache = {}
     records, groups, keys = [], [], []
     turn_pauses = {}
-    turn_stats = {}   # speaker stats per turn (computed from first pause)
+    turn_stats = {}
 
     for r in tqdm(rows, desc=f"  extracting {os.path.basename(data_dir)}", unit="pause"):
         tid = r["turn_id"]
@@ -134,7 +153,6 @@ def load_dataset(data_dir):
         if tid not in turn_stats:
             turn_stats[tid] = spk_stats
 
-        # scalar features derived from seq — no second pyin call
         sc = scalar_features(pause_start, pause_index, prior, seq, mask)
         turn_pauses.setdefault(tid, []).append(pause_start)
 
@@ -142,7 +160,12 @@ def load_dataset(data_dir):
         groups.append(tid)
         keys.append((tid, r["pause_index"], r["audio_file"], data_dir))
 
-    return records, groups, keys
+    result = (records, groups, keys)
+    with open(cache_file, "wb") as f:
+        pickle.dump(result, f)
+    print(f"  Features cached -> {cache_file}")
+
+    return result
 
 
 class FocalLoss(nn.Module):
@@ -179,14 +202,16 @@ def train_one_fold(train_recs, val_recs, epochs=EPOCHS):
     set_seed(SEED)
     model = EOTClassifier(n_frame_feats=N_FRAME_FEATS, n_scalar_feats=N_SCALAR).to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=LR, total_steps=epochs * max(1, len(train_recs) // BATCH),
-        pct_start=0.2, anneal_strategy="cos",
-    )
     criterion = FocalLoss(gamma=2.0, pos_weight=1.8)
 
     train_loader = DataLoader(EOTDataset(train_recs), batch_size=BATCH,
                               shuffle=True, drop_last=False)
+    # compute total_steps from actual loader length (avoids off-by-one)
+    total_steps = epochs * len(train_loader)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=LR, total_steps=total_steps,
+        pct_start=0.2, anneal_strategy="cos",
+    )
     best_auc = 0.0
     best_state = None
 

@@ -11,3 +11,4 @@ eot_handout/eot_data.zip
 eot_handout/starter.zip
 eot_handout/eot_data/
 venv/
+.feature_cache/
