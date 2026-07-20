@@ -26,6 +26,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import GroupKFold
+from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(__file__))
 from frame_features import load_wav, extract_frame_sequence, SEQ_LEN, N_FRAME_FEATS
@@ -108,7 +109,7 @@ def load_dataset(data_dir):
     turn_pauses = {}
     turn_stats = {}   # speaker stats per turn (computed from first pause)
 
-    for r in rows:
+    for r in tqdm(rows, desc=f"  extracting {os.path.basename(data_dir)}", unit="pause"):
         tid = r["turn_id"]
         pause_start = float(r["pause_start"])
         pause_index = int(r["pause_index"])
@@ -182,8 +183,10 @@ def train_one_fold(train_recs, val_recs, epochs=EPOCHS):
     best_auc = 0.0
     best_state = None
 
-    for epoch in range(epochs):
+    pbar = tqdm(range(epochs), desc="  training", unit="epoch", leave=False)
+    for epoch in pbar:
         model.train()
+        epoch_loss = 0.0
         for seq, mask, sc, labels in train_loader:
             optimizer.zero_grad()
             logits = model(seq, mask, sc)
@@ -192,6 +195,7 @@ def train_one_fold(train_recs, val_recs, epochs=EPOCHS):
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
+            epoch_loss += loss.item()
 
         # validate
         model.eval()
@@ -203,6 +207,8 @@ def train_one_fold(train_recs, val_recs, epochs=EPOCHS):
                 preds.extend(torch.sigmoid(logits).numpy())
                 trues.extend(labels.numpy())
         val_auc = auc_score(trues, preds)
+        pbar.set_postfix({"loss": f"{epoch_loss/max(1,len(train_loader)):.3f}",
+                          "val_auc": f"{val_auc:.3f}", "best": f"{best_auc:.3f}"})
         if val_auc > best_auc:
             best_auc = val_auc
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
