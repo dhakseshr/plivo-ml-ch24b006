@@ -1,5 +1,14 @@
 # RUNLOG
 
+## Run 5 — Error analysis + targeted feature redesign (CV AUC 0.728)
+**Score (English):** 1239 ms @ 5.0% interrupted | AUC 0.682 (OOF)
+**Score (Hindi):** 781 ms @ 4.0% interrupted | AUC 0.776 (OOF)
+**5-fold CV AUC:** 0.728 (up from 0.701)
+**Change:** Full error analysis on OOF predictions revealed: (1) first-pause EOTs (pause_index=0) systematically under-predicted — model lacked first-pause priors; (2) Hindi HOLD pauses over-predicted as EOT; (3) 1.5s window was diluting end-of-utterance signal by averaging over too much context. Fixes: narrowed energy and F0 slope features to last 0.5s window, added speaker-normalized F0 (z-score within turn), added explicit language flag, added n_prior pauses and avg inter-pause interval, switched all F0 to pyin throughout. Refocused spectral features to 0.5s window.
+**Why:** Feedback from scoring analysis: optimizing AUC is necessary but the real signal comes from reducing the gap between EOT p_eot distribution and HOLD p_eot distribution specifically at the 5% false-cutoff operating point. Shorter window captures the decisive boundary signal.
+
+---
+
 ## Run 1 — Silence-only baseline
 **Score (English):** 1600 ms @ 0.0% interrupted  
 **Change:** Reference baseline from `starter/baseline.py` — predicts p_eot=1.0 for every pause.  
