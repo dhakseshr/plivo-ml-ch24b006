@@ -1,5 +1,13 @@
 # RUNLOG
 
+## Run 6 — LSTM blend (final submission)
+**Score (English):** 1255 ms @ 5.0% interrupted | AUC 0.688 (OOF)
+**Score (Hindi):** 745 ms @ 5.0% interrupted | AUC 0.804 (OOF)
+**Change:** Added Bidirectional LSTM with attention pooling trained on frame-level features (F0, energy, MFCC at 10ms hop, 80-frame window). Blended with GBM+RF ensemble at 0.7/0.3 weight (grid-searched). predict.py updated to load both models and blend probabilities at inference time.
+**Why:** Frame-level sequential model captures intonation contour dynamics that scalar features cannot — the LSTM sees the full pitch trajectory over the last 800ms, not just slope/ratio summaries. Blend outperforms either model alone on Hindi.
+
+---
+
 ## Run 5 — Error analysis + targeted feature redesign (CV AUC 0.728)
 **Score (English):** 1239 ms @ 5.0% interrupted | AUC 0.682 (OOF)
 **Score (Hindi):** 781 ms @ 4.0% interrupted | AUC 0.776 (OOF)

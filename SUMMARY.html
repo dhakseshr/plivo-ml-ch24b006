@@ -38,15 +38,15 @@
 
 <div>
   <div class="metric-box">
-    <div class="val">1313 ms</div>
+    <div class="val">1255 ms</div>
     <div class="lbl">English — mean response delay<br>(OOF, ≤5% interrupted)</div>
   </div>
   <div class="metric-box">
-    <div class="val">843 ms</div>
+    <div class="val">745 ms</div>
     <div class="lbl">Hindi — mean response delay<br>(OOF, ≤5% interrupted)</div>
   </div>
   <div class="metric-box">
-    <div class="val">0.701</div>
+    <div class="val">0.728</div>
     <div class="lbl">5-fold CV AUC<br>(English + Hindi combined)</div>
   </div>
 </div>
@@ -56,7 +56,9 @@
   <tr><td>Silence-only baseline</td><td class="baseline">~1600 ms</td><td class="baseline">~1600 ms</td><td>0.514</td><td>Starter baseline.py</td></tr>
   <tr><td>Run 2: Prosodic features + GBM</td><td>160 ms*</td><td>100 ms*</td><td>0.736 (val)</td><td>*In-sample — overfit</td></tr>
   <tr><td>Run 3: + MFCC + spectral centroid</td><td>100 ms*</td><td>100 ms*</td><td>0.736 (val)</td><td>*In-sample — overfit</td></tr>
-  <tr><td><strong>Run 4: Ensemble + OOF (final)</strong></td><td class="improved"><strong>1313 ms</strong></td><td class="improved"><strong>843 ms</strong></td><td><strong>0.701 (5-fold CV)</strong></td><td>Honest OOF estimate</td></tr>
+  <tr><td>Run 4: Ensemble + OOF</td><td>1313 ms</td><td>843 ms</td><td>0.701 (5-fold CV)</td><td>Honest OOF estimate</td></tr>
+  <tr><td>Run 5: Error analysis + targeted redesign</td><td>1239 ms</td><td>781 ms</td><td>0.728 (5-fold CV)</td><td>Narrowed windows, speaker-norm F0</td></tr>
+  <tr><td><strong>Run 6: Blend ensemble+LSTM (final)</strong></td><td class="improved"><strong>1255 ms</strong></td><td class="improved"><strong>745 ms</strong></td><td><strong>0.728 (5-fold CV)</strong></td><td>0.7 ensemble + 0.3 LSTM blend</td></tr>
 </table>
 
 <div class="warn">
@@ -113,6 +115,9 @@
 </ul>
 <p>Trained on English + Hindi combined (496 pauses, 200 EOT, 296 hold). Cross-lingual training is essential because the hidden test set is predominantly Hindi.</p>
 
+<h3>LSTM Classifier (blended)</h3>
+<p>Bidirectional LSTM with attention pooling over frame-level features (F0, energy, MFCC per 10ms hop). 80-frame sequence window (last 800ms before pause). Blended with GBM+RF ensemble at weight 0.7/0.3 (grid-searched). Trained independently on same 5-fold splits; blend probabilities at inference time via <code>predict.py</code>.</p>
+
 <h3>Top Features (GBM importances)</h3>
 <table>
   <tr><th>Rank</th><th>Feature</th><th>Importance</th></tr>
@@ -147,6 +152,12 @@
 
 <h3>Run 4 — Ensemble + Rolloff/Flux + OOF Predictions (5-fold AUC 0.701)</h3>
 <p>Added spectral rolloff and spectral flux features. Replaced single GBM with GBM+RF soft-voting ensemble with isotonic calibration. Switched to OOF cross-validation predictions for honest evaluation. Final model.pkl trained on full dataset.</p>
+
+<h3>Run 5 — Error Analysis + Targeted Feature Redesign (CV AUC 0.701→0.728)</h3>
+<p>Error analysis revealed first-pause EOTs under-predicted, Hindi HOLDs over-predicted. Narrowed energy and F0 feature windows to 0.5s, added speaker-normalized F0 (z-score within turn), added explicit language flag, added n_prior pauses and avg inter-pause interval. CV AUC improved from 0.701 to 0.728.</p>
+
+<h3>Run 6 — Bidirectional LSTM Blend (final submission)</h3>
+<p>Added Bidirectional LSTM with attention pooling trained on frame-level features (F0, energy, MFCC at 10ms hop, 80-frame window). Blended with GBM+RF ensemble at 0.7/0.3 weight (grid-searched). predict.py updated to load both models and blend probabilities at inference time. Hindi delay improved from 781ms to 745ms.</p>
 
 <!-- ─── Failure Analysis ────────────────────────────────── -->
 <h2>Where the Model Fails</h2>
@@ -198,13 +209,20 @@
 <h2>Repository Structure</h2>
 <pre>
 plivo-ml-ch24b006/
-├── feature_extraction.py   # Causal feature extraction (56 features)
-├── train_model.py          # Training pipeline: 5-fold OOF + full retrain
-├── predict.py              # Inference script (loads model.pkl)
+├── feature_extraction.py   # Causal scalar feature extraction (56 features)
+├── frame_features.py       # Frame-level feature extraction (F0/energy/MFCC at 10ms hop)
+├── train_model.py          # Training pipeline: 5-fold OOF + full retrain (GBM+RF ensemble)
+├── model_lstm.py           # Bidirectional LSTM with attention pooling architecture
+├── train_lstm.py           # LSTM training loop (OneCycleLR, frame-level input)
+├── error_analysis.py       # OOF error analysis and feature diagnostics
+├── predict.py              # Inference script (blends ensemble + LSTM)
 ├── model.pkl               # Trained GBM+RF ensemble (all data)
-├── predictions.csv         # Combined OOF predictions (English + Hindi)
-├── predictions_en.csv      # English OOF predictions
-├── predictions_hi.csv      # Hindi OOF predictions
+├── model_lstm.pt           # Trained LSTM weights
+├── predictions.csv         # Combined blended predictions (English + Hindi)
+├── predictions_en.csv      # English blended predictions
+├── predictions_hi.csv      # Hindi blended predictions
+├── ensemble_en.csv         # English ensemble-only OOF predictions
+├── ensemble_hi.csv         # Hindi ensemble-only OOF predictions
 ├── RUNLOG.md               # Per-run scores and changes
 ├── NOTES.md                # Model signals, failures, future work
 └── SUMMARY.html            # This file
