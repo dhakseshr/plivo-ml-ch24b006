@@ -30,7 +30,7 @@ from sklearn.model_selection import GroupKFold
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(__file__))
-from frame_features import load_wav, extract_frame_sequence, SEQ_LEN, N_FRAME_FEATS
+from frame_features import load_wav, extract_frame_sequence, SEQ_LEN, N_FRAME_FEATS, SR, HOP
 from model_lstm import EOTClassifier
 from feature_extraction import extract_features  # scalar features from ensemble model
 
@@ -47,27 +47,32 @@ def set_seed(s):
     torch.manual_seed(s)
 
 
-def scalar_features(x, sr, pause_start, pause_index, prior_pauses):
-    """8 hand-crafted scalar features to complement the LSTM."""
-    seg15_len = min(pause_start, 1.5)
-    hop_s = 0.01
+def scalar_features(pause_start, pause_index, prior_pauses, seq, mask):
+    """
+    8 scalar features derived from already-extracted frame sequence.
+    No audio re-processing — avoids double pyin call.
 
-    # time since last pause
+    seq : (SEQ_LEN, N_FRAME_FEATS) — col 1 = norm F0, col 2 = voiced flag
+    mask: (SEQ_LEN,) bool
+    """
+    hop_s = HOP / SR
+
     time_since_last = pause_start - prior_pauses[-1] if prior_pauses else pause_start
+    seg15_len = min(pause_start, 1.5)
 
-    # voiced fraction over last 1.5s (reuse from frame data if available)
-    import librosa
-    seg = x[max(0, int((pause_start - 1.5) * sr)):int(pause_start * sr)]
-    if len(seg) > sr // 10:
-        f0, vf, _ = librosa.pyin(seg, fmin=50, fmax=500, sr=sr, hop_length=160,
-                                  fill_na=0.0)
-        voiced_frac = float(vf.mean()) if len(vf) > 0 else 0.0
-        f0_voiced = f0[vf > 0.5]
-        f0_slope = 0.0
-        if len(f0_voiced) >= 4:
-            pos = np.where(vf > 0.5)[0]
-            f0_slope = float(np.polyfit(pos[-min(8, len(pos)):],
-                                        f0_voiced[-min(8, len(f0_voiced)):], 1)[0])
+    # derive voiced frac and F0 slope from the frame sequence (already computed)
+    real_frames = seq[mask]   # (n_real, F)
+    if len(real_frames) > 0:
+        voiced_flag = real_frames[:, 2]              # col 2 = voiced flag
+        voiced_frac = float(voiced_flag.mean())
+        f0_norm = real_frames[:, 1]                  # col 1 = normalised F0
+        voiced_pos = np.where(voiced_flag > 0.5)[0]
+        if len(voiced_pos) >= 4:
+            tail = min(8, len(voiced_pos))
+            f0_slope = float(np.polyfit(
+                voiced_pos[-tail:], f0_norm[voiced_pos[-tail:]], 1)[0])
+        else:
+            f0_slope = 0.0
     else:
         voiced_frac = 0.0
         f0_slope = 0.0
@@ -80,7 +85,7 @@ def scalar_features(x, sr, pause_start, pause_index, prior_pauses):
         float(len(prior_pauses)),
         voiced_frac,
         f0_slope,
-        1.0 if pause_index == 0 else 0.0,  # is_first_pause
+        1.0 if pause_index == 0 else 0.0,
     ], dtype=np.float32)
 
 
@@ -129,7 +134,8 @@ def load_dataset(data_dir):
         if tid not in turn_stats:
             turn_stats[tid] = spk_stats
 
-        sc = scalar_features(x, sr, pause_start, pause_index, prior)
+        # scalar features derived from seq — no second pyin call
+        sc = scalar_features(pause_start, pause_index, prior, seq, mask)
         turn_pauses.setdefault(tid, []).append(pause_start)
 
         records.append((seq, mask, sc, label))
